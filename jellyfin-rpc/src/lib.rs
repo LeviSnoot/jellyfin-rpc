@@ -6,16 +6,19 @@ use discord_rich_presence::{
     DiscordIpc, DiscordIpcClient,
 };
 pub use error::JfError;
-pub use jellyfin::{Button, MediaType};
-use jellyfin::{ExternalUrl, NowPlayingItem, PlayTime, RawSession, Session, VirtualFolder};
+pub use external::image_utils::ImageProcessingOptions;
+pub use jellyfin::{Button, LibraryFolder, MediaType, NowPlayingItem};
+use jellyfin::{
+    ExternalUrl, ItemsResponse, JellyfinUser, PlayTime, RawSession, Session, VirtualFolder,
+};
 use log::{debug, warn};
 use reqwest::header::{HeaderMap, AUTHORIZATION};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::time::SystemTime;
 use url::Url;
-pub use external::image_utils::ImageProcessingOptions;
 
+pub mod config;
 mod error;
 mod external;
 mod jellyfin;
@@ -23,6 +26,32 @@ mod jellyfin;
 mod tests;
 
 pub(crate) type JfResult<T> = Result<T, Box<dyn std::error::Error>>;
+
+/// Whether an error returned by the client came from talking to the jellyfin server,
+/// as opposed to the discord socket.
+pub fn is_jellyfin_error(err: &(dyn std::error::Error + 'static)) -> bool {
+    err.is::<reqwest::Error>() || err.is::<serde_json::Error>() || err.is::<url::ParseError>()
+}
+
+/// Discord application used when none is configured.
+pub const DEFAULT_APPLICATION_ID: &str = "1053747938519679018";
+
+/// Looks up the public name of a discord application, which is what discord displays
+/// as the name of the activity.
+pub fn fetch_application_name(application_id: &str) -> JfResult<String> {
+    #[derive(Deserialize)]
+    struct Application {
+        name: String,
+    }
+
+    let application: Application = reqwest::blocking::get(format!(
+        "https://discord.com/api/v10/applications/{application_id}/rpc"
+    ))?
+    .error_for_status()?
+    .json()?;
+
+    Ok(application.name)
+}
 
 pub const VERSION: Option<&'static str> = option_env!("CARGO_PKG_VERSION");
 
@@ -45,7 +74,9 @@ pub struct Client {
     zipline_options: ZiplineOptions,
     process_images: bool,
     image_processing_options: external::image_utils::ImageProcessingOptions,
+    #[allow(dead_code)]
     large_image_text: String,
+    last_preview: Option<PresencePreview>,
 }
 
 impl Client {
@@ -108,8 +139,328 @@ impl Client {
     /// client.set_activity().unwrap();
     /// ```
     pub fn set_activity(&mut self) -> JfResult<String> {
+        self.last_preview = None;
         self.get_session()?;
+        self.apply_session()
+    }
 
+    /// Displays a library item on discord as if it was playing, using the options of this client.
+    /// Meant for testing a configuration, the live session is left untouched.
+    pub fn set_activity_item(
+        &mut self,
+        item: NowPlayingItem,
+        is_paused: bool,
+        position_secs: u64,
+    ) -> JfResult<String> {
+        self.last_preview = None;
+
+        let previous = self
+            .session
+            .replace(item.into_session(is_paused, position_secs));
+        let result = self.apply_session();
+        self.session = previous;
+        result
+    }
+
+    fn apply_session(&mut self) -> JfResult<String> {
+        self.ensure_blacklist();
+
+        let Some(session) = &self.session else {
+            return Ok(String::new());
+        };
+
+        if session.now_playing_item.media_type == MediaType::None {
+            return Err(Box::new(JfError::UnrecognizedMediaType));
+        }
+
+        if self.check_blacklist()? {
+            return Err(Box::new(JfError::ContentBlacklist));
+        }
+
+        let image_url = self.resolve_image_url(session.now_playing_item.media_type)?;
+
+        let Some(preview) = self.build_preview(image_url.to_string(), None)? else {
+            return Ok(String::new());
+        };
+
+        let mut assets = Assets::new().large_image(&preview.large_image_url);
+
+        if let Some(text) = &preview.large_image_text {
+            assets = assets.large_text(text);
+        }
+
+        if let (Some(url), Some(text)) = (&preview.small_image_url, &preview.small_image_text) {
+            assets = assets.small_image(url).small_text(text);
+        }
+
+        let mut timestamps = Timestamps::new();
+
+        if let Some((start, end)) = preview.timestamps {
+            timestamps = timestamps.start(start).end(end);
+        }
+
+        let mut activity = Activity::new();
+
+        if !preview.buttons.is_empty() {
+            activity = activity.buttons(
+                preview
+                    .buttons
+                    .iter()
+                    .map(|b| ActButton::new(&b.name, &b.url))
+                    .collect(),
+            );
+        }
+
+        match preview.activity_type {
+            PreviewActivityType::Playing => (),
+            PreviewActivityType::Listening => {
+                activity = activity.activity_type(ActivityType::Listening)
+            }
+            PreviewActivityType::Watching => {
+                activity = activity.activity_type(ActivityType::Watching)
+            }
+        }
+
+        activity = activity
+            .timestamps(timestamps)
+            .assets(assets)
+            .details(&preview.details)
+            .state(&preview.state)
+            .status_display_type(preview.status_display_type.clone().into());
+
+        self.discord_ipc_client.set_activity(activity)?;
+
+        let result = format!("{} | {}", preview.details, preview.state);
+        self.last_preview = Some(preview);
+        Ok(result)
+    }
+
+    /// The presence that was last sent to discord by `set_activity`, `None` if nothing is displayed.
+    pub fn current_preview(&self) -> Option<&PresencePreview> {
+        self.last_preview.as_ref()
+    }
+
+    /// Fetches the live jellyfin session and returns the presence that would be displayed for it,
+    /// without connecting to discord. `None` if nothing would be displayed.
+    pub fn preview_live(&mut self) -> JfResult<Option<PresencePreview>> {
+        self.get_session()?;
+        self.ensure_blacklist();
+
+        if self.session.is_none() {
+            return Ok(None);
+        }
+
+        let preview = self.preview_current_session()?;
+
+        if preview.is_blacklisted || preview.hidden_when_paused {
+            return Ok(None);
+        }
+
+        Ok(Some(preview))
+    }
+
+    /// Builds a preview of what the presence would look like for any library item,
+    /// using the options of this client. Does not touch discord or the live session.
+    pub fn preview_item(
+        &mut self,
+        item: NowPlayingItem,
+        is_paused: bool,
+        position_secs: u64,
+    ) -> JfResult<PresencePreview> {
+        self.ensure_blacklist();
+
+        let previous = self
+            .session
+            .replace(item.into_session(is_paused, position_secs));
+        let result = self.preview_current_session();
+        self.session = previous;
+        result
+    }
+
+    fn preview_current_session(&self) -> JfResult<PresencePreview> {
+        let session = self
+            .session
+            .as_ref()
+            .ok_or(JfError::UnrecognizedMediaType)?;
+
+        if session.now_playing_item.media_type == MediaType::None {
+            return Err(Box::new(JfError::UnrecognizedMediaType));
+        }
+
+        let is_blacklisted = self.check_blacklist()?;
+        let media_type = session.now_playing_item.media_type;
+
+        let (image_url, data_uri) = self.preview_image(media_type);
+
+        let mut preview = self
+            .build_preview_inner(image_url, data_uri, true)?
+            .ok_or(JfError::NoImage)?;
+        preview.hidden_when_paused = preview.is_paused && !self.show_paused;
+        preview.is_blacklisted = is_blacklisted;
+        Ok(preview)
+    }
+
+    /// Image used for the preview: the direct jellyfin url, plus a locally processed
+    /// version (never uploaded) when image processing is enabled.
+    fn preview_image(&self, media_type: MediaType) -> (String, Option<String>) {
+        let default = "https://i.imgur.com/oX6vcds.png".to_string();
+
+        if media_type == MediaType::LiveTv {
+            return ("https://i.imgur.com/XxdHOqm.png".to_string(), None);
+        }
+
+        if !self.show_images {
+            return (default, None);
+        }
+
+        let Ok(url) = self.get_image() else {
+            return (default, None);
+        };
+
+        let mut data_uri = None;
+
+        if self.process_images {
+            if let Ok(bytes) = self
+                .reqwest
+                .get(url.as_ref())
+                .send()
+                .and_then(|r| r.bytes())
+            {
+                if let Ok(png) = external::image_utils::make_square_with_blur(
+                    &bytes,
+                    &self.image_processing_options,
+                ) {
+                    data_uri = Some(format!(
+                        "data:image/png;base64,{}",
+                        external::image_utils::base64_encode(&png)
+                    ));
+                }
+            }
+        }
+
+        (url.to_string(), data_uri)
+    }
+
+    fn resolve_image_url(&self, media_type: MediaType) -> JfResult<Url> {
+        let mut image_url = Url::from_str("https://i.imgur.com/oX6vcds.png")?;
+
+        if media_type == MediaType::LiveTv {
+            image_url = Url::from_str("https://i.imgur.com/XxdHOqm.png")?;
+        } else if self.imgur_options.enabled && self.show_images {
+            if let Ok(imgur_url) = external::imgur::get_image(self) {
+                image_url = imgur_url;
+            } else {
+                debug!("imgur::get_image() didnt return an image, using default..")
+            }
+        } else if self.litterbox_options.enabled && self.show_images {
+            if let Ok(litterbox_url) = external::litterbox::get_image(self) {
+                image_url = litterbox_url;
+            } else {
+                debug!("litterbox::get_image() didn't return an image, using default..")
+            }
+        } else if self.zipline_options.enabled && self.show_images {
+            if let Ok(zipline_url) = external::zipline::get_image(self) {
+                image_url = zipline_url;
+            } else {
+                debug!("zipline::get_image() didn't return an image, using default..")
+            }
+        } else if self.show_images {
+            if let Ok(iu) = self.get_image() {
+                image_url = iu;
+            } else {
+                debug!("self.get_image() didnt return an image, using default..")
+            }
+        }
+
+        Ok(image_url)
+    }
+
+    fn build_preview(
+        &self,
+        image_url: String,
+        data_uri: Option<String>,
+    ) -> JfResult<Option<PresencePreview>> {
+        self.build_preview_inner(image_url, data_uri, false)
+    }
+
+    /// Returns `None` when the session is paused and `show_paused` is disabled
+    /// (unless `force_paused` is set).
+    fn build_preview_inner(
+        &self,
+        image_url: String,
+        data_uri: Option<String>,
+        force_paused: bool,
+    ) -> JfResult<Option<PresencePreview>> {
+        let session = self.session.as_ref().unwrap();
+
+        let mut preview = PresencePreview {
+            large_image_url: image_url,
+            large_image_data_uri: data_uri,
+            ..Default::default()
+        };
+
+        match session.get_time()? {
+            PlayTime::Some(start, end) => {
+                preview.timestamps = Some((start, end));
+                preview.progress = Some((
+                    session.play_state.position_ticks.unwrap_or(0) / 10_000_000,
+                    session.now_playing_item.run_time_ticks.unwrap_or(0) / 10_000_000,
+                ));
+            }
+            PlayTime::None => (),
+            PlayTime::Paused if self.show_paused || force_paused => {
+                preview.is_paused = true;
+                preview.small_image_url = Some("https://i.imgur.com/wlHSvYy.png".to_string());
+                preview.small_image_text = Some("Paused".to_string());
+            }
+            PlayTime::Paused => return Ok(None),
+        }
+
+        preview.buttons = self.get_buttons().unwrap_or_default();
+
+        let (details, state, image_text) = self.activity_texts();
+        preview.details = details;
+        preview.state = state;
+        preview.large_image_text = Some(image_text);
+
+        preview.activity_type = match session.now_playing_item.media_type {
+            MediaType::Book => PreviewActivityType::Playing,
+            MediaType::Music | MediaType::AudioBook => PreviewActivityType::Listening,
+            _ => PreviewActivityType::Watching,
+        };
+
+        preview.status_display_type = self.get_status_display_type();
+        preview.media_type = session.now_playing_item.media_type;
+
+        Ok(Some(preview))
+    }
+
+    /// Details, state and large image text, clamped to what discord accepts.
+    fn activity_texts(&self) -> (String, String, String) {
+        let clamp = |mut text: String| {
+            if text.len() > 128 {
+                text = text.chars().take(128).collect();
+            } else if text.len() < 3 {
+                // Add three zero width joiners due to discord requiring a minimum length of 3 chars in statuses
+                text += "\u{200e}\u{200e}\u{200e}";
+            }
+            text
+        };
+
+        let mut image_text = self.get_image_text();
+
+        if image_text.is_empty() {
+            image_text = format!("Jellyfin-RPC v{}", VERSION.unwrap_or("UNKNOWN"));
+        }
+
+        (
+            clamp(self.get_details()),
+            clamp(self.get_state()),
+            clamp(image_text),
+        )
+    }
+
+    fn ensure_blacklist(&mut self) {
         // Make sure the blacklist cache is loaded/valid
         match &self.blacklist.libraries {
             BlacklistedLibraries::Uninitialized => {
@@ -126,135 +477,124 @@ impl Client {
                 }
             }
         }
+    }
 
-        if let Some(session) = &self.session {
-            if session.now_playing_item.media_type == MediaType::None {
-                return Err(Box::new(JfError::UnrecognizedMediaType));
+    /// Checks that the url and api key work, returns the number of active sessions.
+    pub fn test_connection(&self) -> JfResult<usize> {
+        let sessions: Vec<RawSession> = self
+            .reqwest
+            .get(self.url.join("Sessions")?)
+            .send()?
+            .error_for_status()?
+            .json()?;
+        Ok(sessions.len())
+    }
+
+    /// Names of the users on the jellyfin server.
+    pub fn list_users(&self) -> JfResult<Vec<String>> {
+        let users: Vec<JellyfinUser> = self
+            .reqwest
+            .get(self.url.join("Users")?)
+            .send()?
+            .error_for_status()?
+            .json()?;
+        Ok(users.into_iter().map(|u| u.name).collect())
+    }
+
+    /// Names of the libraries on the jellyfin server.
+    pub fn list_libraries(&self) -> JfResult<Vec<String>> {
+        let folders: Vec<VirtualFolder> = self
+            .reqwest
+            .get(self.url.join("Library/VirtualFolders")?)
+            .send()?
+            .error_for_status()?
+            .json()?;
+        Ok(folders.into_iter().filter_map(|f| f.name).collect())
+    }
+
+    /// Searches the library for items that can be displayed on discord.
+    ///
+    /// An empty `media_types` searches every supported type.
+    pub fn search_library_items(
+        &self,
+        query: &str,
+        media_types: &[MediaType],
+        limit: u32,
+    ) -> JfResult<Vec<NowPlayingItem>> {
+        let types = if media_types.is_empty() {
+            vec![
+                MediaType::Movie,
+                MediaType::Episode,
+                MediaType::Music,
+                MediaType::AudioBook,
+                MediaType::Book,
+            ]
+        } else {
+            media_types.to_vec()
+        };
+
+        self.query_items(&[
+            ("SearchTerm", query),
+            (
+                "IncludeItemTypes",
+                &types
+                    .iter()
+                    .map(|t| t.jellyfin_item_type())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            ),
+            ("Limit", &limit.to_string()),
+            ("SortBy", "SortName"),
+        ])
+    }
+
+    /// Searches for tv series, to browse down to their seasons and episodes.
+    pub fn search_series(&self, query: &str, limit: u32) -> JfResult<Vec<LibraryFolder>> {
+        self.query_items(&[
+            ("SearchTerm", query),
+            ("IncludeItemTypes", "Series"),
+            ("Limit", &limit.to_string()),
+            ("SortBy", "SortName"),
+        ])
+    }
+
+    /// The seasons of a series.
+    pub fn list_seasons(&self, series_id: &str) -> JfResult<Vec<LibraryFolder>> {
+        self.query_items(&[
+            ("ParentId", series_id),
+            ("IncludeItemTypes", "Season"),
+            ("SortBy", "IndexNumber"),
+        ])
+    }
+
+    /// The episodes of a season, or of every season when given a series.
+    pub fn list_episodes(&self, parent_id: &str) -> JfResult<Vec<NowPlayingItem>> {
+        self.query_items(&[
+            ("ParentId", parent_id),
+            ("IncludeItemTypes", "Episode"),
+            ("SortBy", "ParentIndexNumber,IndexNumber"),
+        ])
+    }
+
+    fn query_items<T: serde::de::DeserializeOwned>(
+        &self,
+        params: &[(&str, &str)],
+    ) -> JfResult<Vec<T>> {
+        let mut url = self.url.join("Items")?;
+        {
+            let mut query = url.query_pairs_mut();
+            query.append_pair("Recursive", "true").append_pair(
+                "Fields",
+                "Genres,ExternalUrls,Path,OriginalTitle,SeriesStudio,CriticRating,CommunityRating",
+            );
+            for (key, value) in params.iter().filter(|(_, v)| !v.is_empty()) {
+                query.append_pair(key, value);
             }
-
-            if self.check_blacklist()? {
-                return Err(Box::new(JfError::ContentBlacklist));
-            }
-
-            let mut activity = Activity::new();
-
-            let mut image_url = Url::from_str("https://i.imgur.com/oX6vcds.png")?;
-
-            if session.now_playing_item.media_type == MediaType::LiveTv {
-                image_url = Url::from_str("https://i.imgur.com/XxdHOqm.png")?;
-            } else if self.imgur_options.enabled && self.show_images {
-                if let Ok(imgur_url) = external::imgur::get_image(self) {
-                    image_url = imgur_url;
-                } else {
-                    debug!("imgur::get_image() didnt return an image, using default..")
-                }
-            } else if self.litterbox_options.enabled && self.show_images {
-                if let Ok(litterbox_url) = external::litterbox::get_image(self) {
-                    image_url = litterbox_url;
-                } else {
-                    debug!("litterbox::get_image() didn't return an image, using default..")
-                }
-            } else if self.zipline_options.enabled && self.show_images {
-                if let Ok(zipline_url) = external::zipline::get_image(self) {
-                    image_url = zipline_url;
-                } else {
-                    debug!("zipline::get_image() didn't return an image, using default..")
-                }
-            } else if self.show_images {
-                if let Ok(iu) = self.get_image() {
-                    image_url = iu;
-                } else {
-                    debug!("self.get_image() didnt return an image, using default..")
-                }
-            }
-
-            let mut assets = Assets::new().large_image(image_url.as_str());
-
-            if !self.large_image_text.is_empty() {
-                assets = assets.large_text(&self.large_image_text);
-            }
-
-            let mut timestamps = Timestamps::new();
-
-            match session.get_time()? {
-                PlayTime::Some(start, end) => timestamps = timestamps.start(start).end(end),
-                PlayTime::None => (),
-                PlayTime::Paused if self.show_paused => {
-                    assets = assets
-                        .small_image("https://i.imgur.com/wlHSvYy.png")
-                        .small_text("Paused");
-                }
-                PlayTime::Paused => return Ok(String::new()),
-            }
-
-            let buttons: Vec<Button>;
-
-            if let Some(b) = self.get_buttons() {
-                // This gets around the value being dropped immediately at the end of this if statement
-                buttons = b;
-                activity = activity.buttons(
-                    buttons
-                        .iter()
-                        .map(|b| ActButton::new(&b.name, &b.url))
-                        .collect(),
-                );
-            }
-
-            let mut state = self.get_state();
-
-            if state.len() > 128 {
-                state = state.chars().take(128).collect();
-            } else if state.len() < 3 {
-                // Add three zero width joiners due to discord requiring a minimum length of 3 chars in statuses
-                state += "‎‎‎";
-            }
-
-            let mut details = self.get_details();
-
-            if details.len() > 128 {
-                details = details.chars().take(128).collect();
-            } else if details.len() < 3 {
-                // add three (3) zero width joiners
-                details += "‎‎‎";
-            }
-
-            let mut image_text = self.get_image_text();
-
-            if image_text.is_empty() {
-                image_text = format!("Jellyfin-RPC v{}", VERSION.unwrap_or("UNKNOWN"));
-            }
-
-            if image_text.len() > 128 {
-                image_text = image_text.chars().take(128).collect();
-            } else if image_text.len() < 3 {
-                // add three zero width joiners
-                image_text += "‎‎‎";
-            }
-
-            assets = assets.large_text(image_text.as_str());
-
-            match session.now_playing_item.media_type {
-                MediaType::Book => (),
-                MediaType::Music | MediaType::AudioBook => {
-                    activity = activity.activity_type(ActivityType::Listening)
-                }
-                _ => activity = activity.activity_type(ActivityType::Watching),
-            }
-
-            let status_display_type = self.get_status_display_type();
-
-            activity = activity
-                .timestamps(timestamps)
-                .assets(assets)
-                .details(&details)
-                .state(&state)
-                .status_display_type(status_display_type.into());
-
-            self.discord_ipc_client.set_activity(activity)?;
-
-            return Ok(format!("{} | {}", details, state));
         }
-        Ok(String::new())
+
+        let response: ItemsResponse<T> =
+            self.reqwest.get(url).send()?.error_for_status()?.json()?;
+        Ok(response.items)
     }
 
     fn get_session(&mut self) -> JfResult<()> {
@@ -819,6 +1159,41 @@ impl Client {
     }
 }
 
+/// Kind of activity shown on discord.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PreviewActivityType {
+    #[default]
+    Playing,
+    Watching,
+    Listening,
+}
+
+/// Everything displayed in a discord presence, used to render previews.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct PresencePreview {
+    pub media_type: MediaType,
+    pub activity_type: PreviewActivityType,
+    pub status_display_type: StatusType,
+    pub details: String,
+    pub state: String,
+    pub large_image_url: String,
+    /// Locally processed version of the image, as a `data:` uri.
+    pub large_image_data_uri: Option<String>,
+    pub large_image_text: Option<String>,
+    pub small_image_url: Option<String>,
+    pub small_image_text: Option<String>,
+    pub buttons: Vec<Button>,
+    /// Start and end as unix timestamps in seconds.
+    pub timestamps: Option<(i64, i64)>,
+    /// Position and duration in seconds.
+    pub progress: Option<(i64, i64)>,
+    pub is_paused: bool,
+    /// Paused while `show_paused` is off, discord would show nothing.
+    pub hidden_when_paused: bool,
+    /// Matched by the blacklist, discord would show nothing.
+    pub is_blacklisted: bool,
+}
+
 pub struct EpisodeDisplayOptions {
     pub divider: bool,
     pub prefix: bool,
@@ -907,7 +1282,7 @@ impl From<EpisodeDisplayOptions> for DisplayFormat {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StatusType {
     Name,
     State,
@@ -1069,7 +1444,7 @@ impl ClientBuilder {
     /// Returns a ClientBuilder with some default options set
     pub fn new() -> Self {
         Self {
-            client_id: "1053747938519679018".to_string(),
+            client_id: DEFAULT_APPLICATION_ID.to_string(),
             music_separator: "-".to_string(),
             music_display: DisplayFormat::from(vec!["genres".to_string()]),
             movies_separator: "-".to_string(),
@@ -1501,6 +1876,7 @@ impl ClientBuilder {
                 corner_radius: self.image_corner_radius,
             },
             large_image_text: self.large_image_text,
+            last_preview: None,
         })
     }
 }

@@ -1,0 +1,60 @@
+[application]
+
+# App name
+name = "jellyfin-rpc-gui"
+
+# `build` & `serve` output path
+out_dir = "dist"
+
+# The platform the project is currently targeting or the default platform
+# web, desktop, mobile
+default_platform = "desktop"
+
+# The directory with your static assets
+asset_dir = "assets"
+
+[web.app]
+
+# HTML title tag content
+title = "Jellyfin-RPC"
+
+[web.watcher]
+
+# when trigger a change, hot reload the html
+reload_html = true
+
+# Which files or dirs will be watched
+watch_path = ["src", "assets"]
+
+[web.resource]
+
+# CSS style files
+style = []
+
+# Javascript code files
+script = []
+
+[web.resource.dev]
+
+[bundle]
+
+product_name = "Jellyfin-RPC"
+identifier = "io.github.levisnoot.jellyfin-rpc"
+publisher = "LeviSnoot"
+icon = [
+    "icons/32x32.png",
+    "icons/128x128.png",
+    "icons/icon.icns",
+    "icons/icon.ico",
+]
+category = "Utility"
+short_description = "Discord Rich Presence for Jellyfin"
+long_description = "Jellyfin-RPC shows what you're watching or listening to on Jellyfin as Discord Rich Presence. This app provides a system-tray agent and GUI for configuring it."
+
+[bundle.deb]
+
+depends = ["libwebkit2gtk-4.1-0", "libjavascriptcoregtk-4.1-0", "libgtk-3-0", "libayatana-appindicator3-1", "libssl3t64"]
+
+[bundle.rpm]
+
+depends = ["webkit2gtk4.1", "javascriptcoregtk4.1", "gtk3", "libayatana-appindicator-gtk3", "openssl-libs"]

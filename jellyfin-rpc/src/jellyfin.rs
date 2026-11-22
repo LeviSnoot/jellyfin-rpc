@@ -145,7 +145,7 @@ impl Button {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub struct NowPlayingItem {
     // Generic
@@ -175,11 +175,49 @@ pub struct NowPlayingItem {
     pub album: Option<String>,
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub struct ExternalUrl {
     pub name: String,
     pub url: String,
+}
+
+impl NowPlayingItem {
+    /// Wraps a library item in a synthetic session so it can go through the same
+    /// formatting pipeline as a real playing session.
+    pub(crate) fn into_session(self, is_paused: bool, position_secs: u64) -> Session {
+        RawSession {
+            user_name: None,
+            now_playing_item: Some(self),
+            play_state: Some(PlayState {
+                is_paused,
+                position_ticks: Some(position_secs as i64 * 10_000_000),
+            }),
+        }
+        .build()
+    }
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
+pub(crate) struct ItemsResponse<T> {
+    pub items: Vec<T>,
+}
+
+/// A series or season in the library, used to browse down to episodes.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "PascalCase")]
+pub struct LibraryFolder {
+    pub id: String,
+    pub name: String,
+    pub index_number: Option<i32>,
+    pub production_year: Option<i64>,
+}
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "PascalCase")]
+pub(crate) struct JellyfinUser {
+    pub name: String,
 }
 
 /// The type of the currently playing content.
@@ -270,6 +308,21 @@ impl std::fmt::Display for MediaType {
             MediaType::None => "None",
         };
         write!(f, "{}", res)
+    }
+}
+
+impl MediaType {
+    /// The matching Jellyfin `IncludeItemTypes` value.
+    pub fn jellyfin_item_type(&self) -> &'static str {
+        match self {
+            MediaType::Movie => "Movie",
+            MediaType::Episode => "Episode",
+            MediaType::Music => "Audio",
+            MediaType::LiveTv => "TvChannel",
+            MediaType::Book => "Book",
+            MediaType::AudioBook => "AudioBook",
+            MediaType::None => "",
+        }
     }
 }
 

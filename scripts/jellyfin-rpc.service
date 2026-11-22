@@ -1,6 +1,6 @@
 [Unit]
 Description=Jellyfin-RPC Service
-Documentation=https://github.com/Radiicall/jellyfin-rpc
+Documentation=https://github.com/LeviSnoot/jellyfin-rpc
 After=network.target
 
 [Service]

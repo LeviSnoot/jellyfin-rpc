@@ -1,0 +1,325 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/LeviSnoot/jellyfin-rpc/main.schema.json",
+  "title": "Jellyfin-RPC main.json",
+  "description": "Configuration file for Jellyfin-RPC. Located at ~/.config/jellyfin-rpc/main.json on Linux/macOS (or $XDG_CONFIG_HOME/jellyfin-rpc/main.json) and %APPDATA%\\jellyfin-rpc\\main.json on Windows.",
+  "type": "object",
+  "required": [
+    "jellyfin"
+  ],
+  "properties": {
+    "jellyfin": {
+      "description": "Jellyfin server connection and display configuration.",
+      "type": "object",
+      "required": [
+        "url",
+        "api_key",
+        "username"
+      ],
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "URL to the Jellyfin server. A trailing '/' is added automatically if missing."
+        },
+        "api_key": {
+          "type": "string",
+          "description": "API key from the Jellyfin server, used to read active sessions and library information."
+        },
+        "username": {
+          "description": "Username(s) to read sessions from, in order of priority.",
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "A single username, or several usernames separated by commas."
+            },
+            {
+              "type": "array",
+              "description": "List of usernames in order of priority.",
+              "items": {
+                "type": "string",
+                "description": "A Jellyfin username."
+              }
+            }
+          ]
+        },
+        "music": {
+          "description": "Display options for music tracks. Available placeholders: {track}, {album}, {artists}, {genres}, {year}, {version}, {sep}.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/displayOptions"
+            }
+          ]
+        },
+        "movies": {
+          "description": "Display options for movies. Available placeholders: {title}, {original-title}, {genres}, {year}, {critic-score}, {community-score}, {version}, {sep}.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/displayOptions"
+            }
+          ]
+        },
+        "episodes": {
+          "description": "Display options for TV episodes. Available placeholders: {show-title}, {title}, {original-title}, {episode}, {episode-padded}, {season}, {season-padded}, {year}, {genres}, {studio}, {version}, {sep}. If 'display' is not set, the legacy show_simple/append_prefix/add_divider options are used instead.",
+          "allOf": [
+            {
+              "$ref": "#/$defs/displayOptions"
+            }
+          ]
+        },
+        "blacklist": {
+          "type": "object",
+          "description": "Content that should never be displayed in the RPC.",
+          "properties": {
+            "media_types": {
+              "type": "array",
+              "description": "Media types that should not be displayed in the RPC.",
+              "items": {
+                "description": "A media type (case-insensitive). 'audio' is accepted as an alias of 'music', and 'tvchannel' as an alias of 'livetv'.",
+                "enum": [
+                  "movie",
+                  "episode",
+                  "livetv",
+                  "music",
+                  "book",
+                  "audiobook"
+                ]
+              }
+            },
+            "libraries": {
+              "type": "array",
+              "description": "Names of Jellyfin libraries whose content should not be displayed in the RPC.",
+              "items": {
+                "type": "string",
+                "description": "Name of a Jellyfin library."
+              }
+            }
+          }
+        },
+        "self_signed_cert": {
+          "type": "boolean",
+          "default": false,
+          "description": "Set to true if you are using a self-signed certificate for your HTTPS connections."
+        },
+        "show_simple": {
+          "type": "boolean",
+          "default": false,
+          "description": "Legacy episode option: hide the episode title and only show the season and episode numbers (e.g. S1E1). Only used when 'episodes.display' is not set."
+        },
+        "append_prefix": {
+          "type": "boolean",
+          "default": false,
+          "description": "Legacy episode option: pad season and episode numbers with a leading zero (e.g. S01E01). Only used when 'episodes.display' is not set."
+        },
+        "add_divider": {
+          "type": "boolean",
+          "default": false,
+          "description": "Legacy episode option: add a ' - ' divider between the season and episode numbers (e.g. S1 - E1). Only used when 'episodes.display' is not set."
+        }
+      }
+    },
+    "discord": {
+      "type": "object",
+      "description": "Discord Rich Presence configuration.",
+      "properties": {
+        "application_id": {
+          "type": "string",
+          "default": "1053747938519679018",
+          "description": "This is the application ID used for displaying content; changing this will allow you to change the \"Jellyfin\" title in Discord. You can make a new app here: https://discord.com/developers/applications."
+        },
+        "buttons": {
+          "type": "array",
+          "maxItems": 2,
+          "description": "Buttons shown on the activity. Only the first two are used. If omitted, buttons are generated from the item's external links (e.g. IMDb). Pass an empty list to show no buttons.",
+          "items": {
+            "type": "object",
+            "description": "A button shown on the activity.",
+            "required": [
+              "name",
+              "url"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Text of the button. Use 'dynamic' for both name and url to fill the button with the next external link of the item."
+              },
+              "url": {
+                "type": "string",
+                "description": "URL the button points to. Use 'dynamic' for both name and url to fill the button with the next external link of the item."
+              }
+            }
+          }
+        },
+        "show_paused": {
+          "type": "boolean",
+          "default": true,
+          "description": "Keep displaying the activity (with a 'Paused' icon) while playback is paused. When false, the activity is cleared on pause."
+        }
+      }
+    },
+    "imgur": {
+      "type": "object",
+      "description": "Imgur configuration, used when 'images.imgur_images' is enabled.",
+      "properties": {
+        "client_id": {
+          "type": "string",
+          "description": "Imgur API client ID used to upload images."
+        }
+      }
+    },
+    "zipline": {
+      "type": "object",
+      "description": "Zipline (self-hosted image host) configuration, used when 'images.zipline_images' is enabled. You can find Zipline here: https://github.com/diced/zipline",
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Full URL of the Zipline upload endpoint."
+        },
+        "token": {
+          "type": "string",
+          "description": "Zipline authorization token."
+        },
+        "expiry": {
+          "type": "string",
+          "description": "When uploaded images should be deleted, sent as the x-zipline-deletes-at header. Either a relative duration such as '3d' (units: s, m, h, d, w) or an absolute date as 'date=<RFC 3339 timestamp>'."
+        },
+        "format": {
+          "type": "string",
+          "description": "Name format of uploaded files, sent as the x-zipline-format header."
+        },
+        "image_compression_percent": {
+          "type": "integer",
+          "description": "Image compression percentage applied by Zipline, sent as the x-zipline-image-compression-percent header."
+        },
+        "image_compression_type": {
+          "type": "string",
+          "description": "Image compression format used by Zipline, sent as the x-zipline-image-compression-type header."
+        },
+        "original_name": {
+          "type": "boolean",
+          "default": false,
+          "description": "Ask Zipline to keep the original file name (x-zipline-original-name header)."
+        },
+        "folder": {
+          "type": "string",
+          "description": "Zipline folder to upload into, sent as the x-zipline-folder header."
+        },
+        "domain": {
+          "type": "string",
+          "description": "Zipline domain to use for the returned URL, sent as the x-zipline-domain header."
+        }
+      }
+    },
+    "images": {
+      "type": "object",
+      "description": "Image display and upload configuration. Discord needs publicly reachable image URLs, so images can be uploaded to a host. Only enable one image host in your config. If none are enabled the Jellyfin image URL is used directly, which will result in a fallback image being used if your Jellyfin instance is not publicly reachable.",
+      "properties": {
+        "enable_images": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show a cover image on the activity. Must be enabled for any of the other image options to apply."
+        },
+        "imgur_images": {
+          "type": "boolean",
+          "default": false,
+          "description": "Upload images to Imgur (requires 'imgur.client_id'). Uploaded URLs are cached in urls.json."
+        },
+        "litterbox_images": {
+          "type": "boolean",
+          "default": false,
+          "description": "Upload images to litterbox.catbox.moe. Uploads expire after 72 hours and are re-uploaded automatically."
+        },
+        "zipline_images": {
+          "type": "boolean",
+          "default": false,
+          "description": "Upload images to a Zipline instance (requires 'zipline.url' and 'zipline.token'). Images are re-uploaded automatically if/when they expire."
+        },
+        "process_images": {
+          "type": "boolean",
+          "default": true,
+          "description": "Process images before uploading by making them square, with an optional blurred background."
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Size in pixels of the square output image (e.g. 512 for 512x512). Defaults to the largest dimension of the original image."
+        },
+        "bg": {
+          "type": "boolean",
+          "default": true,
+          "description": "Fill the empty space of processed images with a blurred copy of the image. When false the background is transparent."
+        },
+        "bg_blur": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 50,
+          "default": 3,
+          "description": "Blur radius of the background as a percentage of the image size. 0 disables blurring."
+        },
+        "corner_radius": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 50,
+          "default": 4,
+          "description": "Corner radius as a percentage of the image size. Only applied when 'bg' is false."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "displayOptions": {
+      "type": "object",
+      "description": "Controls how an item type is displayed on the activity.",
+      "properties": {
+        "display": {
+          "description": "What to display. Either a legacy list of placeholder names (appended to the default state text) or a custom format.",
+          "oneOf": [
+            {
+              "type": "string",
+              "description": "Legacy comma separated list of placeholder names without braces (e.g. 'genres,year')."
+            },
+            {
+              "type": "array",
+              "description": "Legacy list of placeholder names without braces (e.g. [\"genres\", \"year\"]).",
+              "items": {
+                "type": "string",
+                "description": "A placeholder name without braces."
+              }
+            },
+            {
+              "type": "object",
+              "description": "Custom text format. Use {__default} to insert the built-in default for that line.",
+              "properties": {
+                "details_text": {
+                  "type": "string",
+                  "description": "First line of the activity."
+                },
+                "state_text": {
+                  "type": "string",
+                  "description": "Second line of the activity."
+                },
+                "image_text": {
+                  "type": "string",
+                  "description": "Text shown when hovering the large image. Falls back to 'Jellyfin-RPC v<version>' when empty."
+                }
+              }
+            }
+          ]
+        },
+        "separator": {
+          "type": "string",
+          "default": "-",
+          "description": "Text that replaces the {sep} placeholder."
+        },
+        "status_display_type": {
+          "enum": [
+            "name",
+            "state",
+            "details"
+          ],
+          "default": "name",
+          "description": "Sets which part of the activity is shown as the status title: the application name, the state line or the details line."
+        }
+      }
+    }
+  }
+}
