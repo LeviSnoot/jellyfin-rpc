@@ -1,7 +1,7 @@
 use clap::Parser;
 use colored::Colorize;
 use config::{get_config_path, get_urls_path, Config};
-use jellyfin_rpc::{Client, DisplayFormat, EpisodeDisplayOptions, VERSION};
+use jellyfin_rpc::{ClientBuilder, VERSION};
 use log::{debug, error, info};
 use retry::retry_with_index;
 use simple_logger::SimpleLogger;
@@ -16,7 +16,7 @@ mod updates;
 */
 
 #[derive(Parser)]
-#[command(author = "Radical <Radiicall> <radical@radical.fun>")]
+#[command(author = "Radical <Radiicall> <radical@radical.fun>, LeviSnoot <hello@levi.land>")]
 #[command(version)]
 #[command(about = "Rich presence for Jellyfin", long_about = None)]
 struct Args {
@@ -79,125 +79,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             error!("{}", error);
             error!(
                 "Please create a proper config file: {}",
-                "https://github.com/JustRadical/jellyfin-rpc/wiki/Setup".green()
+                "https://github.com/LeviSnoot/jellyfin-rpc/blob/main/main.schema.json".green()
             );
             std::process::exit(1)
         }
     };
 
     debug!("Creating jellyfin-rpc client builder");
-    let mut builder = Client::builder();
-
-    builder
-        .api_key(conf.jellyfin.api_key)
-        .url(conf.jellyfin.url)
-        .usernames(conf.jellyfin.username)
-        .self_signed(conf.jellyfin.self_signed_cert)
-        .episode_simple(conf.jellyfin.show_simple)
-        .episode_divider(conf.jellyfin.add_divider)
-        .episode_prefix(conf.jellyfin.append_prefix)
-        .show_paused(conf.discord.show_paused)
-        .show_images(conf.images.enable_images)
-        .use_imgur(conf.images.imgur_images)
-        .use_litterbox(conf.images.litterbox_images)
-        .use_zipline(conf.images.zipline_images)
-        .zipline_url(conf.zipline.url.unwrap_or_default())
-        .zipline_token(conf.zipline.token.unwrap_or_default())
-        .zipline_expiry(conf.zipline.expiry)
-        .zipline_format(conf.zipline.format)
-        .zipline_image_compression_percent(conf.zipline.image_compression_percent)
-        .zipline_image_compression_type(conf.zipline.image_compression_type)
-        .zipline_original_name(conf.zipline.original_name)
-        .zipline_folder(conf.zipline.folder)
-        .zipline_domain(conf.zipline.domain)
-        .process_images(conf.images.process_images)
-        .image_size(conf.images.size)
-        .image_background(conf.images.bg)
-        .image_background_blur(conf.images.bg_blur)
-        .image_corner_radius(conf.images.corner_radius)
-        .large_image_text(format!("Jellyfin-RPC v{}", VERSION.unwrap_or("UNKNOWN")))
-        .imgur_urls_file_location(args.image_urls.clone().unwrap_or(get_urls_path()?))
-        .litterbox_urls_file_location(args.image_urls.clone().unwrap_or(get_urls_path()?))
-        .zipline_urls_file_location(args.image_urls.unwrap_or(get_urls_path()?));
-
-    if let Some(display) = conf.jellyfin.music.display {
-        debug!("Found config.jellyfin.music.display");
-        builder.music_display(display);
-    }
-
-    if let Some(separator) = conf.jellyfin.music.separator {
-        debug!("Found config.jellyfin.music.separator");
-        builder.music_separator(separator);
-    }
-
-    if let Some(status_display_type) = conf.jellyfin.music.status_display_type {
-        debug!("Found config.jellyfin.music.status_display_type");
-        builder.music_status_display_type(status_display_type);
-    }
-
-    if let Some(display) = conf.jellyfin.movies.display {
-        debug!("Found config.jellyfin.movies.display");
-        builder.movies_display(display);
-    }
-
-    if let Some(separator) = conf.jellyfin.movies.separator {
-        debug!("Found config.jellyfin.movies.separator");
-        builder.movies_separator(separator);
-    }
-
-    if let Some(status_display_type) = conf.jellyfin.movies.status_display_type {
-        debug!("Found config.jellyfin.movies.status_display_type");
-        builder.movies_status_display_type(status_display_type);
-    }
-
-    if let Some(display) = conf.jellyfin.episodes.display {
-        debug!("Found config.jellyfin.episodes.display");
-        builder.episodes_display(display);
-    } else {
-        debug!("Couldn't find config.jellyfin.episodes.display, using legacy episode values");
-        builder.episodes_display(DisplayFormat::from(EpisodeDisplayOptions {
-            divider: conf.jellyfin.add_divider,
-            prefix: conf.jellyfin.append_prefix,
-            simple: conf.jellyfin.show_simple,
-        }));
-    }
-
-    if let Some(separator) = conf.jellyfin.episodes.separator {
-        debug!("Found config.jellyfin.episodes.separator");
-        builder.episodes_separator(separator);
-    }
-
-    if let Some(status_display_type) = conf.jellyfin.episodes.status_display_type {
-        debug!("Found config.jellyfin.episodes.status_display_type");
-        builder.episodes_status_display_type(status_display_type);
-    }
-
-    if let Some(media_types) = conf.jellyfin.blacklist.media_types {
-        debug!("Found config.jellyfin.blacklist.media_types");
-        debug!("Blacklisted MediaTypes: {:?}", media_types);
-        builder.blacklist_media_types(media_types);
-    }
-
-    if let Some(libraries) = conf.jellyfin.blacklist.libraries {
-        debug!("Found config.jellyfin.blacklist.libraries");
-        debug!("Blacklisted libraries: {:?}", libraries);
-        builder.blacklist_libraries(libraries);
-    }
-
-    if let Some(application_id) = conf.discord.application_id {
-        debug!("Found config.discord.application_id");
-        builder.client_id(application_id);
-    }
-
-    if let Some(buttons) = conf.discord.buttons {
-        debug!("Found config.discord.buttons");
-        builder.buttons(buttons);
-    }
-
-    if let Some(client_id) = conf.imgur.client_id {
-        debug!("Found config.imgur.client_id");
-        builder.imgur_client_id(client_id);
-    }
+    let builder = ClientBuilder::from_config(conf, &args.image_urls.unwrap_or(get_urls_path()?));
 
     debug!("Building client");
     let mut client = builder.build()?;

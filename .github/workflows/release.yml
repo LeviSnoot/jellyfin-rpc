@@ -10,17 +10,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install latest rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          default: true
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache target folder
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         env:
           cache-name: target-folder
         with:
@@ -29,52 +25,60 @@ jobs:
           restore-keys: |
             x86_64-linux-
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev libssl-dev libxdo-dev rpm
+
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --workspace --locked --release
+        run: cargo build --workspace --locked --release
 
       - name: Rename binary
         run: mv target/release/jellyfin-rpc target/release/jellyfin-rpc-x86_64-linux
 
       - name: Run cargo test
-        uses: actions-rs/cargo@v1
+        run: cargo test --all-features --locked
+
+      - name: Install dx
+        uses: taiki-e/install-action@v2
         with:
-          command: test
-          args: --all-features --locked
+          tool: dioxus-cli@0.7.10
+
+      - name: Bundle GUI
+        run: dx bundle --release --package-types deb --package-types rpm --package-types appimage --package jellyfin-rpc-gui
 
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
             target/release/jellyfin-rpc-x86_64-linux
+            jellyfin-rpc-gui/dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   ubuntu-arm32:
     runs-on: ubuntu-latest
-  
+
+    env:
+      CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER: arm-linux-gnueabihf-gcc
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-  
+        uses: actions/checkout@v7
+
       - name: Install latest rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: armv7-unknown-linux-gnueabihf
-          default: true
-          override: true
-  
+          targets: armv7-unknown-linux-gnueabihf
+
       - name: Update apt and install ARM32 gcc
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-arm-linux-gnueabihf
-    
+
       - name: Cache target folder
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         env:
           cache-name: target-folder
         with:
@@ -82,19 +86,15 @@ jobs:
           key: arm32-linux-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             arm32-linux-
-  
+
       - name: Build for ARM32 Linux
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: build
-          args: --target armv7-unknown-linux-gnueabihf --workspace --locked --release
-  
+        run: cargo build --target armv7-unknown-linux-gnueabihf -p jellyfin-rpc-cli --locked --release
+
       - name: Rename binary
         run: mv target/armv7-unknown-linux-gnueabihf/release/jellyfin-rpc target/armv7-unknown-linux-gnueabihf/release/jellyfin-rpc-arm32-linux
 
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
@@ -104,26 +104,26 @@ jobs:
 
   ubuntu-arm64:
     runs-on: ubuntu-latest
-  
+
+    env:
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-  
+        uses: actions/checkout@v7
+
       - name: Install latest rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: aarch64-unknown-linux-gnu
-          default: true
-          override: true
-  
+          targets: aarch64-unknown-linux-gnu
+
       - name: Update apt and install ARM64 gcc
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu
-    
+
       - name: Cache target folder
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         env:
           cache-name: target-folder
         with:
@@ -131,19 +131,15 @@ jobs:
           key: arm64-linux-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             arm64-linux-
-  
+
       - name: Build for ARM64 Linux
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: build
-          args: --target aarch64-unknown-linux-gnu --workspace --locked --release
+        run: cargo build --target aarch64-unknown-linux-gnu -p jellyfin-rpc-cli --locked --release
 
       - name: Rename binary
-        run: mv target/aarch64-unknown-linux-gnu/release/jellyfin-rpc target/aarch64-unknown-linux-gnu/release/jellyfin-rpc-arm64-linux  
+        run: mv target/aarch64-unknown-linux-gnu/release/jellyfin-rpc target/aarch64-unknown-linux-gnu/release/jellyfin-rpc-arm64-linux
 
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
@@ -156,17 +152,13 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install latest rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          default: true
-          override: true
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Cache target folder
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         env:
           cache-name: target-folder
         with:
@@ -176,22 +168,26 @@ jobs:
             x86_64-windows-
 
       - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --workspace --locked --release
+        run: cargo build --workspace --locked --release
 
       - name: Run cargo test
-        uses: actions-rs/cargo@v1
+        run: cargo test --all-features --locked
+
+      - name: Install dx
+        uses: taiki-e/install-action@v2
         with:
-          command: test
-          args: --all-features --locked
+          tool: dioxus-cli@0.7.10
+
+      - name: Bundle GUI
+        run: dx bundle --release --package-types msi --package-types nsis --package jellyfin-rpc-gui
 
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: target/release/jellyfin-rpc.exe
+          files: |
+            target/release/jellyfin-rpc.exe
+            jellyfin-rpc-gui/dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -200,18 +196,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install latest rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: x86_64-apple-darwin
-          default: true
-          override: true
+          targets: x86_64-apple-darwin
 
       - name: Cache target folder
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         env:
           cache-name: target-folder
         with:
@@ -221,26 +214,29 @@ jobs:
             x86_64-macos-
 
       - name: Build for x86_64 macOS
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --target x86_64-apple-darwin --workspace --locked --release
+        run: cargo build --target x86_64-apple-darwin --workspace --locked --release
 
       - name: Rename binary
         run: mv target/x86_64-apple-darwin/release/jellyfin-rpc target/x86_64-apple-darwin/release/jellyfin-rpc-x86_64-darwin
 
       - name: Run cargo test
-        uses: actions-rs/cargo@v1
+        run: cargo test --all-features --locked
+
+      - name: Install dx
+        uses: taiki-e/install-action@v2
         with:
-          command: test
-          args: --all-features --locked
+          tool: dioxus-cli@0.7.10
+
+      - name: Bundle GUI
+        run: dx bundle --release --package-types macos --package-types dmg --package jellyfin-rpc-gui --target x86_64-apple-darwin
 
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
             target/x86_64-apple-darwin/release/jellyfin-rpc-x86_64-darwin
+            jellyfin-rpc-gui/dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -249,18 +245,15 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install latest rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-          target: aarch64-apple-darwin
-          default: true
-          override: true
+          targets: aarch64-apple-darwin
 
       - name: Cache target folder
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         env:
           cache-name: target-folder
         with:
@@ -270,19 +263,25 @@ jobs:
             arm64-macos-
 
       - name: Build for arm64 macOS
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --target aarch64-apple-darwin --workspace --locked --release
+        run: cargo build --target aarch64-apple-darwin --workspace --locked --release
 
       - name: Rename binary
         run: mv target/aarch64-apple-darwin/release/jellyfin-rpc target/aarch64-apple-darwin/release/jellyfin-rpc-arm64-darwin
 
+      - name: Install dx
+        uses: taiki-e/install-action@v2
+        with:
+          tool: dioxus-cli@0.7.10
+
+      - name: Bundle GUI
+        run: dx bundle --release --package-types macos --package-types dmg --package jellyfin-rpc-gui --target aarch64-apple-darwin
+
       - name: Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: |
             target/aarch64-apple-darwin/release/jellyfin-rpc-arm64-darwin
+            jellyfin-rpc-gui/dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

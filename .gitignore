@@ -8,3 +8,4 @@
 /.vscode
 /jftest
 /shell.nix
+/jellyfin-rpc-gui/dist
