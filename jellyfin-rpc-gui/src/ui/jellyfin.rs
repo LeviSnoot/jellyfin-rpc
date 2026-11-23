@@ -3,6 +3,7 @@ use jellyfin_rpc::MediaType;
 
 use crate::{
     app::AppState,
+    components::{Button, ButtonVariant, Label},
     ui::widgets::{Section, StringList, TextField, Toggle},
     util::{blocking, client_for},
 };
@@ -23,7 +24,7 @@ pub fn JellyfinTab() -> Element {
     let mut result = use_signal(|| None::<Result<String, String>>);
     let mut testing = use_signal(|| false);
 
-    let test = move |_| async move {
+    let test = move |_: MouseEvent| async move {
         testing.set(true);
         let f = form.read().clone();
 
@@ -75,8 +76,8 @@ pub fn JellyfinTab() -> Element {
                 onchange: move |v| form.write().self_signed_cert = v,
             }
             div { class: "row",
-                button {
-                    class: "btn",
+                Button {
+                    variant: ButtonVariant::Secondary,
                     disabled: testing(),
                     onclick: test,
                     if testing() { "Testing..." } else { "Test connection" }
@@ -100,8 +101,8 @@ pub fn JellyfinTab() -> Element {
         }
         Section { title: "Blacklist",
             div { class: "field",
-                span { class: "label", "Media types that are never shown" }
-                div { class: "checks",
+                Label { html_for: "blacklist-types", "Media types that are never shown" }
+                div { id: "blacklist-types", class: "checks",
                     for (media_type, label) in BLACKLISTABLE {
                         Toggle {
                             key: "{label}",

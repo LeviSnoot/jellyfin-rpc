@@ -2,16 +2,33 @@ use dioxus::prelude::*;
 
 use crate::{
     agent::{AgentHandle, AgentStatus, Command},
+    components::{
+        Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Separator, TabContent, TabList,
+        TabTrigger, Tabs,
+    },
     form::Form,
     tray::{status_text, use_tray},
     ui::{
-        discord::DiscordTab, display::DisplayTab, images::ImagesTab, jellyfin::JellyfinTab,
+        discord::DiscordTab,
+        display::DisplayTab,
+        images::ImagesTab,
+        jellyfin::JellyfinTab,
         preview::PreviewPanel,
+        widgets::{Banner, BannerKind},
     },
     Startup,
 };
 
+use crate::embedded::{
+    components::CSS as COMPONENTS_CSS, FONT_SORA_LATIN_EXT_WGHT_NORMAL,
+    FONT_SORA_LATIN_WGHT_NORMAL, FONT_SPLINE_SANS_MONO_LATIN_EXT_WGHT_NORMAL,
+    FONT_SPLINE_SANS_MONO_LATIN_WGHT_NORMAL,
+};
+
 const CSS: &str = include_str!("../assets/main.css");
+const COMPONENTS_THEME: &str = include_str!("../assets/dx-components-theme.css");
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const RELEASES_URL: &str = "https://github.com/LeviSnoot/jellyfin-rpc/releases/latest";
 
 /// Shared state, available to every component through context.
 #[derive(Clone, Copy)]
@@ -42,6 +59,24 @@ impl Tab {
             Tab::Display => "Display",
             Tab::Discord => "Discord",
             Tab::Images => "Images",
+        }
+    }
+
+    fn id(self) -> &'static str {
+        match self {
+            Tab::Jellyfin => "jellyfin",
+            Tab::Display => "display",
+            Tab::Discord => "discord",
+            Tab::Images => "images",
+        }
+    }
+
+    fn index(self) -> usize {
+        match self {
+            Tab::Jellyfin => 0,
+            Tab::Display => 1,
+            Tab::Discord => 2,
+            Tab::Images => 3,
         }
     }
 }
@@ -101,12 +136,12 @@ pub fn App() -> Element {
 
     use_tray(agent.clone(), status);
 
-    let mut tab = use_signal(|| Tab::Jellyfin);
+    let mut tab = use_signal(|| Some("jellyfin".to_string()));
     let dirty = *form.read() != *saved.read();
     let current = status();
     let paused = current.paused;
 
-    let (dot, text) = if current.config_error.is_some() {
+    let (dot, text) = if current.config_error.is_some() || current.paused {
         ("dot warn", status_text(&current))
     } else if current.discord_running && current.ipc_connected {
         ("dot ok", status_text(&current))
@@ -114,34 +149,49 @@ pub fn App() -> Element {
         ("dot idle", status_text(&current))
     };
 
-    let discord_label = if current.discord_running {
-        "Discord running"
-    } else {
-        "Discord not running"
-    };
-
     let save_startup = startup.clone();
     let pause_agent = agent.clone();
     let stop_agent = agent.clone();
 
+    let fonts = format!(
+        "@font-face {{ font-family: 'Sora Variable'; font-style: normal; font-display: swap; font-weight: 100 800; \
+         src: url('{FONT_SORA_LATIN_EXT_WGHT_NORMAL}') format('woff2-variations'); \
+         unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }} \
+         @font-face {{ font-family: 'Sora Variable'; font-style: normal; font-display: swap; font-weight: 100 800; \
+         src: url('{FONT_SORA_LATIN_WGHT_NORMAL}') format('woff2-variations'); \
+         unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }} \
+         @font-face {{ font-family: 'Spline Sans Mono Variable'; font-style: normal; font-display: swap; font-weight: 300 700; \
+         src: url('{FONT_SPLINE_SANS_MONO_LATIN_EXT_WGHT_NORMAL}') format('woff2-variations'); \
+         unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF; }} \
+         @font-face {{ font-family: 'Spline Sans Mono Variable'; font-style: normal; font-display: swap; font-weight: 300 700; \
+         src: url('{FONT_SPLINE_SANS_MONO_LATIN_WGHT_NORMAL}') format('woff2-variations'); \
+         unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD; }}"
+    );
+
     rsx! {
+        style { dangerous_inner_html: fonts }
+        style { dangerous_inner_html: COMPONENTS_THEME }
+        style { dangerous_inner_html: COMPONENTS_CSS }
         style { dangerous_inner_html: CSS }
         div { class: "app",
             header { class: "topbar",
                 div { class: "brand", "Jellyfin-RPC" }
                 div { class: "status",
-                    span { class: "{dot}" }
-                    span { class: "status-text", "{text}" }
-                    span { class: if current.discord_running { "pill on" } else { "pill" }, "{discord_label}" }
+                    Badge {
+                        variant: BadgeVariant::Secondary,
+                        style: "max-width: 100%; overflow: hidden;",
+                        span { class: "{dot}" }
+                        span { class: "status-text", "{text}" }
+                    }
                 }
                 div { class: "actions",
-                    button {
-                        class: "btn",
+                    Button {
+                        variant: ButtonVariant::Secondary,
                         onclick: move |_| pause_agent.send(Command::SetPaused(!paused)),
                         if paused { "Resume RPC" } else { "Pause RPC" }
                     }
-                    button {
-                        class: "btn primary",
+                    Button {
+                        variant: ButtonVariant::Primary,
                         disabled: !dirty,
                         onclick: move |_| save(state, &save_startup),
                         if dirty { "Save & Apply" } else { "Saved" }
@@ -149,56 +199,79 @@ pub fn App() -> Element {
                 }
             }
             if let Some(err) = &startup.load_error {
-                div { class: "banner error",
+                Banner { kind: BannerKind::Error,
                     "Could not read the existing config at {startup.config_path}: {err}. Saving will overwrite it."
                 }
             }
             if let Some(err) = &current.config_error {
                 if !err.starts_with("Set the Jellyfin") {
-                    div { class: "banner error", "Configuration error: {err}" }
+                    Banner { kind: BannerKind::Error, "Configuration error: {err}" }
                 }
             }
             if current.test_active {
-                div { class: "banner test",
-                    span { "A test presence is being sent to Discord instead of your live session." }
-                    button {
-                        class: "btn small",
-                        onclick: move |_| stop_agent.send(Command::SetTest(None)),
-                        "Stop"
-                    }
+                Banner {
+                    kind: BannerKind::Test,
+                    action: rsx! {
+                        Button {
+                            variant: ButtonVariant::Outline,
+                            size: ButtonSize::Sm,
+                            onclick: move |_| stop_agent.send(Command::SetTest(None)),
+                            "Stop"
+                        }
+                    },
+                    "A test presence is being sent to Discord instead of your live session."
                 }
             }
             if let Some(err) = &current.detection_error {
-                div { class: "banner error", "{err}" }
+                Banner { kind: BannerKind::Error, "{err}" }
             }
             if let Some(err) = &current.error {
-                div { class: "banner error", "{err}" }
+                Banner { kind: BannerKind::Error, "{err}" }
             }
             if let Some((ok, msg)) = message() {
-                div { class: if ok { "banner ok" } else { "banner error" }, "{msg}" }
+                Banner { kind: if ok { BannerKind::Ok } else { BannerKind::Error }, "{msg}" }
             }
             main { class: "content",
                 section { class: "config",
-                    nav { class: "tabs",
-                        for t in Tab::ALL {
-                            button {
-                                key: "{t.label()}",
-                                class: if tab() == t { "tab active" } else { "tab" },
-                                onclick: move |_| tab.set(t),
-                                "{t.label()}"
+                    Tabs {
+                        class: "config-tabs",
+                        value: tab,
+                        horizontal: true,
+                        on_value_change: move |v: String| tab.set(Some(v)),
+                        TabList {
+                            for t in Tab::ALL {
+                                TabTrigger {
+                                    key: "{t.id()}",
+                                    value: t.id().to_string(),
+                                    index: t.index(),
+                                    "{t.label()}"
+                                }
                             }
                         }
-                    }
-                    div { class: "tab-body",
-                        match tab() {
-                            Tab::Jellyfin => rsx! { JellyfinTab {} },
-                            Tab::Display => rsx! { DisplayTab {} },
-                            Tab::Discord => rsx! { DiscordTab {} },
-                            Tab::Images => rsx! { ImagesTab {} },
+                        for t in Tab::ALL {
+                            TabContent {
+                                key: "{t.id()}-content",
+                                class: Some("tab-body".to_string()),
+                                value: t.id().to_string(),
+                                index: t.index(),
+                                match t {
+                                    Tab::Jellyfin => rsx! { JellyfinTab {} },
+                                    Tab::Display => rsx! { DisplayTab {} },
+                                    Tab::Discord => rsx! { DiscordTab {} },
+                                    Tab::Images => rsx! { ImagesTab {} },
+                                }
+                            }
                         }
                     }
                 }
                 aside { class: "preview", PreviewPanel {} }
+            }
+            footer { class: "version-footer",
+                Badge { variant: BadgeVariant::Outline,
+                    "v{VERSION}"
+                    Separator { horizontal: false, decorative: true, style: "height: 10px;" }
+                    a { href: RELEASES_URL, "Check for new releases" }
+                }
             }
         }
     }

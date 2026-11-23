@@ -1,20 +1,22 @@
 use std::{
-    fs::{self, File, OpenOptions}, io::{Error, ErrorKind, Write}, path::Path
+    fs::{self, File, OpenOptions},
+    io::{Error, ErrorKind, Write},
+    path::Path,
 };
 
-use log::{debug};
+use chrono::prelude::*;
+use log::debug;
 use serde::{Deserialize, Serialize};
 use url::Url;
-use chrono::prelude::*;
 
-use reqwest::{blocking::multipart::{ Form, Part }};
-use crate::{ Client, JfResult };
+use crate::{Client, JfResult};
+use reqwest::blocking::multipart::{Form, Part};
 
 #[derive(Deserialize, Serialize, Clone)]
 struct ImageUrl {
     id: String,
     url: String,
-    timestamp: String
+    timestamp: String,
 }
 
 impl ImageUrl {
@@ -22,7 +24,7 @@ impl ImageUrl {
         Self {
             id: id.into(),
             url: url.into(),
-            timestamp: timestamp.into()
+            timestamp: timestamp.into(),
         }
     }
 }
@@ -50,7 +52,7 @@ pub fn get_image(client: &Client) -> JfResult<Url> {
             debug!("Image \"{}\" is expired", image_url.url.clone());
 
             image_urls.swap_remove(idx);
-            
+
             let mut file = OpenOptions::new()
                 .write(true)
                 .truncate(true)
@@ -62,8 +64,7 @@ pub fn get_image(client: &Client) -> JfResult<Url> {
 
             // Try again
             self::get_image(client)
-        }
-        else {
+        } else {
             Ok(Url::parse(&image_url.url)?)
         }
     } else {
@@ -78,7 +79,7 @@ pub fn get_image(client: &Client) -> JfResult<Url> {
         let image_url = ImageUrl::new(
             &client.session.as_ref().unwrap().item_id,
             litterbox_url.as_str(),
-            current_time.timestamp().to_string()
+            current_time.timestamp().to_string(),
         );
 
         image_urls.push(image_url);
@@ -141,7 +142,10 @@ fn upload(client: &Client) -> JfResult<Url> {
     let litterbox_form = Form::new()
         .text("reqtype", "fileupload")
         .text("time", "72h")
-        .part("fileToUpload", Part::bytes(file_bytes).file_name(filename + ".jpg"));
+        .part(
+            "fileToUpload",
+            Part::bytes(file_bytes).file_name(filename + ".jpg"),
+        );
 
     let res: String = litterbox_client
         .post("https://litterbox.catbox.moe/resources/internals/api.php")

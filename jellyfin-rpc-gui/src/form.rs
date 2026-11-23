@@ -2,7 +2,7 @@
 
 use jellyfin_rpc::{
     config::{
-        Blacklist, ConfigBuilder, Display, DiscordBuilder, DisplayOptionsBuilder, ImagesBuilder,
+        Blacklist, ConfigBuilder, DiscordBuilder, Display, DisplayOptionsBuilder, ImagesBuilder,
         Imgur, JellyfinBuilder, Username, Zipline,
     },
     Button, DisplayFormat, MediaType,
@@ -272,10 +272,7 @@ impl Form {
                 .as_ref()
                 .and_then(|d| d.application_id.clone())
                 .unwrap_or_default(),
-            show_paused: discord
-                .as_ref()
-                .and_then(|d| d.show_paused)
-                .unwrap_or(true),
+            show_paused: discord.as_ref().and_then(|d| d.show_paused).unwrap_or(true),
             buttons_mode,
             buttons,
 
@@ -321,7 +318,8 @@ impl Form {
     pub fn to_builder(&self) -> ConfigBuilder {
         let blacklist = (!self.blacklist_types.is_empty() || !self.blacklist_libraries.is_empty())
             .then(|| Blacklist {
-                media_types: (!self.blacklist_types.is_empty()).then(|| self.blacklist_types.clone()),
+                media_types: (!self.blacklist_types.is_empty())
+                    .then(|| self.blacklist_types.clone()),
                 libraries: (!self.blacklist_libraries.is_empty())
                     .then(|| self.blacklist_libraries.clone()),
             });

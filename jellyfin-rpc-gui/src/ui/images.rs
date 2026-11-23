@@ -30,8 +30,8 @@ pub fn ImagesTab() -> Element {
             }
             if f.enable_images {
                 div { class: "field",
-                    span { class: "label", "Image host" }
                     Choice {
+                        label: "Image host",
                         options: vec![
                             ("jellyfin".to_string(), "Jellyfin (direct)".to_string()),
                             ("imgur".to_string(), "Imgur".to_string()),

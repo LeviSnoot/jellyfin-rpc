@@ -49,7 +49,10 @@ fn image_processing_makes_square_png() {
     let source = image::RgbImage::from_pixel(60, 30, image::Rgb([200, 40, 40]));
     let mut bytes = Vec::new();
     source
-        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
         .unwrap();
 
     for background in [true, false] {

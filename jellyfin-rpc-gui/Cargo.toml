@@ -27,6 +27,12 @@ features = ["desktop"]
 [dependencies.dioxus-desktop]
 version = "0.7"
 
+[dependencies.dioxus-primitives]
+git = "https://github.com/DioxusLabs/components"
+
+[dependencies.dioxus-icons]
+version = "0.1"
+
 [dependencies.clap]
 features = ["derive"]
 version  = "4.5"

@@ -39,13 +39,13 @@ pub fn status_text(status: &AgentStatus) -> String {
     if status.config_error.is_some() {
         "Not configured".to_string()
     } else if status.paused {
-        "Paused".to_string()
+        "RPC Paused".to_string()
     } else if !status.discord_running {
         "Waiting for Discord".to_string()
     } else if !status.now_playing.is_empty() {
         status.now_playing.clone()
     } else if status.ipc_connected {
-        "Connected to Discord, nothing playing".to_string()
+        "Connected, Idle".to_string()
     } else {
         "Connecting to Discord".to_string()
     }
@@ -90,9 +90,11 @@ pub fn use_tray(agent: AgentHandle, status: Signal<AgentStatus>) {
         let status = status();
         let text = status_text(&status);
         items.status.set_text(format!("Jellyfin-RPC: {text}"));
-        items
-            .pause
-            .set_text(if status.paused { "Resume RPC" } else { "Pause RPC" });
+        items.pause.set_text(if status.paused {
+            "Resume RPC"
+        } else {
+            "Pause RPC"
+        });
     });
 
     let on_menu = Rc::new(move |id: &str| match id {

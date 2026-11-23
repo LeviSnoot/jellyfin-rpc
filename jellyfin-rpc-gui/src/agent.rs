@@ -16,7 +16,12 @@ use tokio::sync::watch;
 const INTERVAL: Duration = Duration::from_secs(7);
 
 /// Process names (lowercase, without `.exe`) of the official discord clients.
-const DISCORD_PROCESSES: &[&str] = &["discord", "discordptb", "discordcanary", "discorddevelopment"];
+const DISCORD_PROCESSES: &[&str] = &[
+    "discord",
+    "discordptb",
+    "discordcanary",
+    "discorddevelopment",
+];
 
 /// A library item sent to discord instead of the live session, to test a configuration.
 #[derive(Clone, Debug)]
@@ -355,7 +360,12 @@ impl Worker {
         match result {
             Ok(preview) => {
                 self.status.preview = preview;
-                if self.status.error.as_deref().is_some_and(|e| e.starts_with("Jellyfin")) {
+                if self
+                    .status
+                    .error
+                    .as_deref()
+                    .is_some_and(|e| e.starts_with("Jellyfin"))
+                {
                     self.status.error = None;
                 }
             }

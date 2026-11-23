@@ -1,15 +1,21 @@
 use dioxus::prelude::*;
+use dioxus_icons::lucide::ChevronRight;
 use jellyfin_rpc::{
-    fetch_application_name, LibraryFolder, MediaType, NowPlayingItem, PresencePreview, PreviewActivityType, StatusType,
-    DEFAULT_APPLICATION_ID,
+    fetch_application_name, LibraryFolder, MediaType, NowPlayingItem, PresencePreview,
+    PreviewActivityType, StatusType, DEFAULT_APPLICATION_ID,
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::{
     agent::{Command, TestPresence},
     app::AppState,
+    components::{
+        Badge, BadgeVariant, Button, ButtonSize, ButtonVariant, Input, Item, ItemActions,
+        ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemMediaVariant, ItemSize, ItemTitle,
+        ItemVariant, Label, ScrollArea, Skeleton, Slider,
+    },
     form::Form,
-    ui::widgets::Choice,
+    ui::widgets::{Choice, Toggle},
     util::{blocking, client_for, thumbnail_url},
     Startup,
 };
@@ -80,10 +86,7 @@ fn load_children(form: Form, crumb: Crumb) -> Result<Listing, String> {
         }
     }
 
-    Ok((
-        Vec::new(),
-        client.list_episodes(&crumb.id).map_err(err)?,
-    ))
+    Ok((Vec::new(), client.list_episodes(&crumb.id).map_err(err)?))
 }
 
 fn folder_subtitle(folder: &LibraryFolder, is_series: bool) -> String {
@@ -337,7 +340,13 @@ pub fn PreviewPanel() -> Element {
             Source::Live => rsx! {
                 match status.preview.clone() {
                     Some(p) => rsx! {
-                        div { class: if status.test_active { "badge test" } else { "badge live" }, if status.test_active { "Test" } else { "Live" } }
+                        div {
+                            Badge {
+                                variant: BadgeVariant::Primary,
+                                style: if status.test_active { "background-color: var(--warn);" } else { "background-color: var(--ok); color: white;" },
+                                if status.test_active { "TEST" } else { "LIVE" }
+                            }
+                        }
                         PresenceCard { preview: p, app_name: app_name.clone() }
                     },
                     None => rsx! {
@@ -357,19 +366,19 @@ pub fn PreviewPanel() -> Element {
             Source::Library => rsx! {
                 div { class: "search",
                     div { class: "input-row",
-                        input {
+                        Input {
                             r#type: "text",
                             value: "{query}",
                             placeholder: "Search your library",
-                            oninput: move |e| query.set(e.value()),
-                            onkeydown: move |e| {
+                            oninput: move |e: FormEvent| query.set(e.value()),
+                            onkeydown: move |e: KeyboardEvent| {
                                 if e.key() == Key::Enter {
                                     search();
                                 }
                             },
                         }
-                        button {
-                            class: "btn",
+                        Button {
+                            variant: ButtonVariant::Secondary,
                             disabled: searching(),
                             onclick: move |_| search(),
                             if searching() { "Searching..." } else { "Search" }
@@ -392,57 +401,54 @@ pub fn PreviewPanel() -> Element {
                     }
                     if !nav.read().is_empty() {
                         div { class: "crumbs",
-                            button {
+                            Button {
+                                variant: ButtonVariant::Link,
+                                size: ButtonSize::Xs,
                                 r#type: "button",
-                                class: "crumb",
                                 onclick: move |_| browse(Target::Root, None),
                                 "Results"
                             }
                             for (i, crumb) in nav().into_iter().enumerate() {
                                 span { key: "{crumb.id}", class: "crumb-sep", "/" }
-                                button {
+                                Button {
+                                    variant: ButtonVariant::Link,
+                                    size: ButtonSize::Xs,
                                     r#type: "button",
-                                    class: "crumb",
                                     onclick: move |_| browse(Target::Crumb(i), None),
                                     "{crumb.name}"
                                 }
                             }
                         }
                     }
-                    div { class: "results",
-                        for folder in listing().0 {
-                            button {
-                                key: "{folder.id}",
-                                r#type: "button",
-                                class: "result-row",
-                                onclick: {
-                                    let folder = folder.clone();
-                                    move |_| browse(Target::Open, Some(folder.clone()))
-                                },
-                                img { class: "thumb", src: thumbnail_url(&base_url, &folder.id) }
-                                span { class: "result-text",
-                                    span { class: "result-title", "{folder.name}" }
-                                    span { class: "result-sub", "{folder_subtitle(&folder, nav.read().is_empty())}" }
+                    ScrollArea { style: "max-height: 260px;",
+                        ItemGroup {
+                            for folder in listing().0 {
+                                ResultRow {
+                                    key: "{folder.id}",
+                                    title: folder.name.clone(),
+                                    subtitle: folder_subtitle(&folder, nav.read().is_empty()),
+                                    image: thumbnail_url(&base_url, &folder.id),
+                                    folder: true,
+                                    onselect: {
+                                        let folder = folder.clone();
+                                        move |_| browse(Target::Open, Some(folder.clone()))
+                                    },
                                 }
-                                span { class: "chevron", ">" }
                             }
-                        }
-                        for item in listing().1 {
-                            button {
-                                key: "{item.id}",
-                                r#type: "button",
-                                class: if selected().as_ref().is_some_and(|s| s.id == item.id) { "result-row active" } else { "result-row" },
-                                onclick: {
-                                    let item = item.clone();
-                                    move |_| {
-                                        position.set(duration_secs(&item) / 4);
-                                        selected.set(Some(item.clone()));
-                                    }
-                                },
-                                img { class: "thumb", src: thumbnail_url(&base_url, &image_id(&item)) }
-                                span { class: "result-text",
-                                    span { class: "result-title", "{item.name}" }
-                                    span { class: "result-sub", "{item.media_type} {subtitle(&item)}" }
+                            for item in listing().1 {
+                                ResultRow {
+                                    key: "{item.id}",
+                                    title: item.name.clone(),
+                                    subtitle: format!("{} {}", item.media_type, subtitle(&item)),
+                                    image: thumbnail_url(&base_url, &image_id(&item)),
+                                    active: selected().as_ref().is_some_and(|s| s.id == item.id),
+                                    onselect: {
+                                        let item = item.clone();
+                                        move |_| {
+                                            position.set(duration_secs(&item) / 4);
+                                            selected.set(Some(item.clone()));
+                                        }
+                                    },
                                 }
                             }
                         }
@@ -450,23 +456,22 @@ pub fn PreviewPanel() -> Element {
                 }
                 if let Some(item) = selected() {
                     div { class: "sim",
-                        label { class: "toggle",
-                            input {
-                                r#type: "checkbox",
-                                checked: paused(),
-                                onchange: move |e| paused.set(e.checked()),
-                            }
-                            span { class: "toggle-text", span { class: "label", "Paused" } }
+                        Toggle {
+                            label: "Paused",
+                            checked: paused(),
+                            onchange: move |v| paused.set(v),
                         }
                         if duration_secs(&item) > 0 {
-                            label { class: "field slider",
-                                span { class: "label", "Position {format_time(position() as i64)} / {format_time(duration_secs(&item) as i64)}" }
-                                input {
-                                    r#type: "range",
-                                    min: "0",
-                                    max: "{duration_secs(&item)}",
-                                    value: "{position()}",
-                                    oninput: move |e| position.set(e.value().parse().unwrap_or(0)),
+                            div { class: "field",
+                                Label { html_for: "preview-position", "Position {format_time(position() as i64)} / {format_time(duration_secs(&item) as i64)}" }
+                                Slider {
+                                    id: "preview-position",
+                                    label: Some("Position".to_string()),
+                                    value: Some(position() as f64),
+                                    min: 0.0,
+                                    max: duration_secs(&item) as f64,
+                                    step: 1.0,
+                                    on_value_change: move |v: f64| position.set(v as u64),
                                 }
                             }
                         }
@@ -474,32 +479,27 @@ pub fn PreviewPanel() -> Element {
                     match &*preview.read_unchecked() {
                         Some(Some(Ok(p))) => rsx! { PresenceCard { preview: p.clone(), app_name: app_name.clone() } },
                         Some(Some(Err(err))) => rsx! { p { class: "result error", "{err}" } },
-                        _ => rsx! { p { class: "help", "Loading preview..." } },
+                        _ => rsx! { PresenceSkeleton {} },
                     }
                     div { class: "test-rpc",
-                        label { class: "toggle",
-                            input {
-                                r#type: "checkbox",
-                                checked: status.test_active,
-                                disabled: !can_test && !status.test_active,
-                                onchange: {
-                                    let agent = agent.clone();
-                                    let item = item.clone();
-                                    move |e| {
-                                        agent.send(Command::SetTest(e.checked().then(|| {
-                                            Box::new(TestPresence {
-                                                item: item.clone(),
-                                                paused: paused(),
-                                                position_secs: position(),
-                                            })
-                                        })));
-                                    }
-                                },
-                            }
-                            span { class: "toggle-text",
-                                span { class: "label", "Send this to Discord as the real RPC" }
-                                span { class: "help", "Replaces your live session on Discord until switched off, for testing." }
-                            }
+                        Toggle {
+                            label: "Send this to Discord as the real RPC",
+                            help: "Replaces your live session on Discord until switched off, for testing.",
+                            checked: status.test_active,
+                            disabled: !can_test && !status.test_active,
+                            onchange: {
+                                let agent = agent.clone();
+                                let item = item.clone();
+                                move |on: bool| {
+                                    agent.send(Command::SetTest(on.then(|| {
+                                        Box::new(TestPresence {
+                                            item: item.clone(),
+                                            paused: paused(),
+                                            position_secs: position(),
+                                        })
+                                    })));
+                                }
+                            },
                         }
                         if !can_test && !status.test_active {
                             p { class: "help", "Needs Discord running, a valid configuration and RPC not paused." }
@@ -514,6 +514,67 @@ pub fn PreviewPanel() -> Element {
                     }
                 }
             },
+        }
+    }
+}
+
+/// A folder or playable item in the library browser.
+#[component]
+fn ResultRow(
+    title: String,
+    subtitle: String,
+    image: String,
+    onselect: EventHandler<()>,
+    #[props(default)] active: bool,
+    #[props(default)] folder: bool,
+) -> Element {
+    rsx! {
+        Item {
+            variant: if active { ItemVariant::Muted } else { ItemVariant::Default },
+            size: ItemSize::Sm,
+            class: "result-row",
+            role: "button",
+            tabindex: "0",
+            onclick: move |_| onselect.call(()),
+            onkeydown: move |e: KeyboardEvent| {
+                if e.key() == Key::Enter {
+                    onselect.call(());
+                }
+            },
+            ItemMedia { variant: ItemMediaVariant::Image,
+                img { src: "{image}" }
+            }
+            ItemContent {
+                ItemTitle { "{title}" }
+                ItemDescription { "{subtitle}" }
+            }
+            if folder {
+                ItemActions {
+                    ChevronRight { size: "16px" }
+                }
+            }
+        }
+    }
+}
+
+/// Placeholder with the shape of [`PresenceCard`], shown while a preview is loading.
+#[component]
+fn PresenceSkeleton() -> Element {
+    rsx! {
+        div { class: "member-list", aria_busy: "true", aria_label: "Loading preview",
+            Skeleton { style: "width: 70px; height: 12px;" }
+            Skeleton { style: "width: 160px; height: 12px;" }
+        }
+        div { class: "card", aria_hidden: "true",
+            Skeleton { style: "width: 120px; height: 12px;" }
+            div { class: "card-body",
+                Skeleton { style: "width: 88px; height: 88px; border-radius: 8px; flex: none;" }
+                div { class: "card-text", style: "gap: 8px;",
+                    Skeleton { style: "width: 70%; height: 14px;" }
+                    Skeleton { style: "width: 50%; height: 14px;" }
+                    Skeleton { style: "width: 100%; height: 4px; margin-top: 6px;" }
+                }
+            }
         }
     }
 }

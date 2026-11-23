@@ -179,17 +179,19 @@ jobs:
       - name: Bundle GUI
         run: dx bundle --release --package-types msi --package-types nsis --package jellyfin-rpc-gui
 
-      - name: Upload artifact
+      - name: Upload CLI artifact
         uses: actions/upload-artifact@v7
         with:
           name: windows
           path: target/release/jellyfin-rpc.exe
 
-      - name: Upload GUI artifact
+      - name: Upload GUI artifacts
         uses: actions/upload-artifact@v7
         with:
           name: windows-gui
-          path: jellyfin-rpc-gui/dist/
+          path: |
+            jellyfin-rpc-gui/dist/
+            target/dx/jellyfin-rpc-gui/bundle/windows/jellyfin-rpc-gui.exe
 
   macos-x86_64:
     runs-on: macos-latest

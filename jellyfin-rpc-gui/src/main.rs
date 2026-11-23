@@ -8,6 +8,8 @@ use std::str::FromStr;
 
 mod agent;
 mod app;
+mod components;
+mod embedded;
 mod form;
 mod tray;
 mod ui;
@@ -19,7 +21,10 @@ mod util;
 struct Args {
     #[arg(short = 'c', long = "config", help = "Path to the config file")]
     config: Option<String>,
-    #[arg(long, help = "Open the window on launch instead of starting in the tray")]
+    #[arg(
+        long,
+        help = "Open the window on launch instead of starting in the tray"
+    )]
     show: bool,
     #[arg(
         short = 'v',

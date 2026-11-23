@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 use crate::{
     app::AppState,
     form::{DisplayForm, DisplayMode, Form},
-    ui::widgets::{Choice, Help, Section, TextField, Toggle},
+    ui::widgets::{Choice, Help, Section, Suggestion, TextField, Toggle},
 };
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -24,7 +24,9 @@ impl Kind {
 
     fn placeholders(self) -> &'static [&'static str] {
         match self {
-            Kind::Music => &["track", "album", "artists", "genres", "year", "version", "sep"],
+            Kind::Music => &[
+                "track", "album", "artists", "genres", "year", "version", "sep",
+            ],
             Kind::Movies => &[
                 "title",
                 "original-title",
@@ -199,22 +201,18 @@ fn DisplayEditor(kind: Kind) -> Element {
                 },
             }
             if d.mode != DisplayMode::Default {
-                div { class: "chips suggestions",
+                div { class: "chips",
                     for name in kind.placeholders() {
-                        button {
+                        Suggestion {
                             key: "{name}",
-                            r#type: "button",
-                            class: "chip suggestion",
+                            text: "{{{name}}}",
                             onclick: move |_| insert(name),
-                            "{{{name}}}"
                         }
                     }
                     if d.mode == DisplayMode::Custom {
-                        button {
-                            r#type: "button",
-                            class: "chip suggestion",
+                        Suggestion {
+                            text: "{{__default}}",
                             onclick: move |_| insert("__default"),
-                            "{{__default}}"
                         }
                     }
                 }
@@ -226,19 +224,17 @@ fn DisplayEditor(kind: Kind) -> Element {
                 help: "Replaces {{sep}}.",
                 oninput: move |v| kind.get_mut(&mut form.write()).separator = v,
             }
-            div { class: "field",
-                span { class: "label", "Member list status shows" }
-                Choice {
-                    options: vec![
-                        (String::new(), "Name".to_string()),
-                        ("state".to_string(), "State".to_string()),
-                        ("details".to_string(), "Details".to_string()),
-                    ],
-                    value: d.status_display_type.clone(),
-                    onchange: move |key: String| {
-                        kind.get_mut(&mut form.write()).status_display_type = key;
-                    },
-                }
+            Choice {
+                label: "Member list status shows",
+                options: vec![
+                    (String::new(), "Name".to_string()),
+                    ("state".to_string(), "State".to_string()),
+                    ("details".to_string(), "Details".to_string()),
+                ],
+                value: d.status_display_type.clone(),
+                onchange: move |key: String| {
+                    kind.get_mut(&mut form.write()).status_display_type = key;
+                },
             }
         }
     }

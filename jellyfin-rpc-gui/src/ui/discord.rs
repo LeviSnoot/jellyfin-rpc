@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 use crate::{
     app::AppState,
+    components::{Button, ButtonSize, ButtonVariant, Separator},
     form::{ButtonForm, ButtonsMode},
     ui::widgets::{Choice, Help, Section, TextField, Toggle},
 };
@@ -67,10 +68,12 @@ pub fn DiscordTab() -> Element {
                     Help { text: "Up to two buttons. A dynamic button is filled with the next external link of the item." }
                     for (i, button) in f.buttons.iter().cloned().enumerate() {
                         div { key: "{i}", class: "button-editor",
+                            Separator { decorative: true }
                             div { class: "row between",
                                 strong { "Button {i + 1}" }
-                                button {
-                                    class: "btn small",
+                                Button {
+                                    variant: ButtonVariant::Outline,
+                                    size: ButtonSize::Sm,
                                     onclick: move |_| { form.write().buttons.remove(i); },
                                     "Remove"
                                 }
@@ -96,8 +99,8 @@ pub fn DiscordTab() -> Element {
                         }
                     }
                     if f.buttons.len() < 2 {
-                        button {
-                            class: "btn",
+                        Button {
+                            variant: ButtonVariant::Secondary,
                             onclick: move |_| form.write().buttons.push(ButtonForm::default()),
                             "Add button"
                         }

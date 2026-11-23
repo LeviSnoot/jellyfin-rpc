@@ -455,7 +455,7 @@ impl ConfigBuilder {
         }
 
         let zipline = self.zipline.unwrap_or_default();
-        
+
         let enable_images;
         let imgur_images;
         let litterbox_images;
